@@ -37,3 +37,7 @@ command.txt
 
 ### Video ###
 *.mp4
+
+### pro chart ###
+src/main/resources/static/index2.html
+src/main/resources/static/app.js

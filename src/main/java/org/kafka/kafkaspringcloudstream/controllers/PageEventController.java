@@ -12,7 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
-
+import org.springframework.http.codec.ServerSentEvent;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -40,22 +40,48 @@ public class PageEventController {
         return event;
     }
 
+    @GetMapping(path = "/analytics", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<Map<String, Long>> analytics() {
 
-    @GetMapping(path = "/analytics",produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<Map<String, Long>> analytics(){
-        return Flux.interval(Duration.ofSeconds(1))
-                .map(sequencz -> {
-                    Map<String, Long> stringLongMap = new HashMap<>();
-                    ReadOnlyWindowStore<String, Long> windowStore = interactiveQueryService.getQueryableStore("count-store", QueryableStoreTypes.windowStore());
-                    Instant now=Instant.now();
-                    Instant from=now.minusMillis(5000);
-                    KeyValueIterator<Windowed<String>, Long> fetchAll = windowStore.fetchAll(from, now);
-                    while (fetchAll.hasNext()){
-                        KeyValue<Windowed<String>, Long> next = fetchAll.next();
-                        stringLongMap.put(next.key.key(), next.value);
+        return Flux.create(sink -> {
+
+            Runnable task = () -> {
+
+                try {
+                    Map<String, Long> result = new HashMap<>();
+
+                    ReadOnlyWindowStore<String, Long> store =
+                            interactiveQueryService.getQueryableStore(
+                                    "count-store",
+                                    QueryableStoreTypes.windowStore()
+                            );
+                    if (store == null) {
+                        System.out.println("STORE IS NULL ");
+                        return;
                     }
-                    return stringLongMap;
-                });
-    }
 
+                    Instant now = Instant.now();
+                    Instant from = now.minusSeconds(10);
+                    KeyValueIterator<Windowed<String>, Long> iter =
+                            store.fetchAll(from, now);
+
+                    while (iter.hasNext()) {
+                        KeyValue<Windowed<String>, Long> next = iter.next();
+                        result.put(next.key.key(), next.value);
+                    }
+
+                    iter.close();
+                    //System.out.println("SSE DATA → " + result);
+                    sink.next(result);
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            };
+
+            // send every 1 second
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
+                    .scheduleAtFixedRate(task, 0, 1, java.util.concurrent.TimeUnit.SECONDS);
+        });
+    }
 }
